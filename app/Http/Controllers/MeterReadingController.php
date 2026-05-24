@@ -49,11 +49,18 @@ class MeterReadingController extends Controller
                     'consumption' => $consumption,
                     'cost' => $cost,
                     'reading_date' => $date,
+                    'status' => 'Draft'
                 ]);
             }
         }
 
-        return redirect()->route('meter_readings.index')->with('success', 'All readings saved and costs calculated!');
+        return redirect()->route('meter_readings.index')->with('success', 'All readings saved as Draft!');
+    }
+
+    public function post(MeterReading $meterReading)
+    {
+        $meterReading->update(['status' => 'Posted']);
+        return back()->with('success', 'Meter reading posted successfully!');
     }
 
     public function store(Request $request)

@@ -5,12 +5,40 @@ namespace App\Http\Controllers;
 use App\Models\Tenant;
 use Illuminate\Http\Request;
 
+use App\Mail\TenantMessageMail;
+use Illuminate\Support\Facades\Mail;
+
 class TenantController extends Controller
 {
     public function index()
     {
-        $tenants = Tenant::all();
+        $tenants = Tenant::with(['leases' => function($q) {
+            $q->where('active', true)->with('unit');
+        }])->latest()->get();
         return view('tenants.index', compact('tenants'));
+    }
+
+    public function sendMessage(Request $request, Tenant $tenant)
+    {
+        $request->validate([
+            'subject' => 'required|string|max:255',
+            'message' => 'required|string',
+        ]);
+
+        if (!$tenant->email) {
+            return back()->with('error', 'Tenant does not have an email address.');
+        }
+
+        try {
+            Mail::to($tenant->email)->send(new TenantMessageMail(
+                $request->subject,
+                $request->message,
+                $tenant->full_name
+            ));
+            return back()->with('success', 'Email sent successfully to ' . $tenant->full_name);
+        } catch (\Exception $e) {
+            return back()->with('error', 'Failed to send email: ' . $e->getMessage());
+        }
     }
 
     public function create()
@@ -31,15 +59,18 @@ class TenantController extends Controller
             'monthly_rent' => 'required|numeric',
             'security_deposit' => 'nullable|numeric',
             'advance_payment' => 'nullable|numeric',
+            'move_in_date' => 'required|date',
         ]);
 
-        $tenant = Tenant::create($request->except(['_token', 'unit_id', 'monthly_rent', 'security_deposit', 'advance_payment']));
+        $tenantData = $request->except(['_token', 'unit_id', 'monthly_rent', 'security_deposit', 'advance_payment']);
+        $tenantData['registration_date'] = now();
+        $tenant = Tenant::create($tenantData);
 
         // Create Lease automatically
         $lease = Lease::create([
             'unit_id' => $request->unit_id,
             'tenant_id' => $tenant->id,
-            'start_date' => now(),
+            'start_date' => $request->move_in_date,
             'monthly_rent' => $request->monthly_rent,
             'security_deposit' => $request->security_deposit ?? 0,
             'active' => true,

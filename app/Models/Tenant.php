@@ -6,7 +6,15 @@ use Illuminate\Database\Eloquent\Model;
 
 class Tenant extends Model
 {
-    protected $fillable = ['full_name', 'email', 'phone_number', 'emergency_contact', 'category', 'registration_date'];
+    protected $fillable = [
+        'full_name', 
+        'email', 
+        'phone_number', 
+        'emergency_contact', 
+        'category', 
+        'registration_date',
+        'move_in_date'
+    ];
 
     public function leases()
     {

@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class MaintenanceRequest extends Model
 {
-    protected $fillable = ['unit_id', 'tenant_id', 'title', 'description', 'priority', 'status', 'assigned_to', 'completed_at'];
+    protected $fillable = ['unit_id', 'tenant_id', 'title', 'description', 'photo_path', 'priority', 'status', 'assigned_to', 'completed_at'];
 
     public function unit()
     {

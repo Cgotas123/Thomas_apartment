@@ -11,13 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('units', function (Illuminate\Database\Schema\Blueprint $table) {
+        Schema::create('unit_types', function (Blueprint $table) {
             $table->id();
-            $table->string('unit_number')->unique();
-            $table->integer('floor')->default(1);
-            $table->string('type')->default('Non-AC');
+            $table->string('name')->unique();
+            $table->text('description')->nullable();
             $table->decimal('base_rent', 10, 2);
-            $table->enum('status', ['Vacant', 'Occupied', 'Maintenance'])->default('Vacant');
             $table->timestamps();
         });
     }
@@ -27,6 +25,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('units');
+        Schema::dropIfExists('unit_types');
     }
 };
