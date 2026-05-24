@@ -2,66 +2,113 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use App\Models\Bill;
 use App\Models\Lease;
-use App\Models\MeterReading;
-use App\Models\Setting;
-use Illuminate\Http\Request;
-use Carbon\Carbon;
+use App\Models\ActivityLog;
+use App\Mail\BillNotification;
 
 class BillController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $bills = Bill::with('lease.tenant', 'lease.unit')->latest()->paginate(10);
+        $query = Bill::with(['lease.tenant', 'lease.unit']);
+        if ($request->filled('status')) { $query->where('status', $request->status); }
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->whereHas('lease.tenant', fn($q) => $q->where('first_name','like',"%{$s}%")->orWhere('last_name','like',"%{$s}%"));
+        }
+        $bills = $query->orderBy('created_at', 'desc')->paginate(15);
         return view('bills.index', compact('bills'));
     }
 
-    public function generate(Request $request)
+    public function create()
     {
-        $leases = Lease::where('active', true)->get();
-        $billingDate = Carbon::now();
-        $periodStart = Carbon::now()->subMonth();
-        $periodEnd = Carbon::now();
+        $leases = Lease::with(['tenant', 'unit'])->where('status', 'active')->get();
+        return view('bills.create', compact('leases'));
+    }
 
-        foreach ($leases as $lease) {
-            // Get meter readings for this period
-            $elecReading = MeterReading::where('unit_id', $lease->unit_id)
-                ->where('type', 'Electricity')
-                ->where('status', 'Posted')
-                ->whereBetween('reading_date', [$periodStart, $periodEnd])
-                ->sum('cost');
-
-            $waterReading = MeterReading::where('unit_id', $lease->unit_id)
-                ->where('type', 'Water')
-                ->where('status', 'Posted')
-                ->whereBetween('reading_date', [$periodStart, $periodEnd])
-                ->sum('cost');
-
-            $wifiFee = Setting::where('key', 'wifi_monthly_fee')->value('value') ?? 500;
-
-            $total = $lease->monthly_rent + $elecReading + $waterReading + $wifiFee;
-
-            Bill::create([
-                'lease_id' => $lease->id,
-                'billing_date' => $billingDate,
-                'due_date' => $billingDate->copy()->addDays(7),
-                'period_start' => $periodStart,
-                'period_end' => $periodEnd,
-                'rent_amount' => $lease->monthly_rent,
-                'electricity_amount' => $elecReading,
-                'water_amount' => $waterReading,
-                'wifi_fee' => $wifiFee,
-                'total_amount' => $total,
-                'status' => 'Unpaid'
-            ]);
-        }
-
-        return redirect()->route('bills.index')->with('success', 'Monthly bills generated successfully!');
+    public function store(Request $request)
+    {
+        $v = $request->validate([
+            'lease_id' => 'required|exists:leases,id',
+            'billing_period_start' => 'required|date',
+            'billing_period_end' => 'required|date|after:billing_period_start',
+            'rent_amount' => 'required|numeric|min:0',
+            'water_amount' => 'required|numeric|min:0',
+            'electricity_amount' => 'required|numeric|min:0',
+            'other_charges' => 'nullable|numeric|min:0',
+            'due_date' => 'required|date',
+            'notes' => 'nullable|string',
+        ]);
+        $v['other_charges'] = $v['other_charges'] ?? 0;
+        $v['total_amount'] = $v['rent_amount'] + $v['water_amount'] + $v['electricity_amount'] + $v['other_charges'];
+        $v['status'] = 'unpaid';
+        $v['created_by'] = auth()->id();
+        $bill = Bill::create($v);
+        ActivityLog::log('create', "Bill created for lease #{$v['lease_id']}", $bill);
+        return redirect()->route('bills.index')->with('success', 'Bill created successfully!');
     }
 
     public function show(Bill $bill)
     {
+        $bill->load(['lease.tenant', 'lease.unit', 'payments', 'creator']);
         return view('bills.show', compact('bill'));
+    }
+
+    public function edit(Bill $bill)
+    {
+        $leases = Lease::with(['tenant', 'unit'])->where('status', 'active')->get();
+        return view('bills.edit', compact('bill', 'leases'));
+    }
+
+    public function update(Request $request, Bill $bill)
+    {
+        $v = $request->validate([
+            'lease_id' => 'required|exists:leases,id',
+            'billing_period_start' => 'required|date',
+            'billing_period_end' => 'required|date|after:billing_period_start',
+            'rent_amount' => 'required|numeric|min:0',
+            'water_amount' => 'required|numeric|min:0',
+            'electricity_amount' => 'required|numeric|min:0',
+            'other_charges' => 'nullable|numeric|min:0',
+            'due_date' => 'required|date',
+            'status' => 'required|in:unpaid,partial,paid,overdue',
+            'notes' => 'nullable|string',
+        ]);
+        $v['other_charges'] = $v['other_charges'] ?? 0;
+        $v['total_amount'] = $v['rent_amount'] + $v['water_amount'] + $v['electricity_amount'] + $v['other_charges'];
+        $bill->update($v);
+        ActivityLog::log('update', "Bill #{$bill->id} updated", $bill);
+        return redirect()->route('bills.index')->with('success', 'Bill updated successfully!');
+    }
+
+    public function destroy(Bill $bill)
+    {
+        if (!auth()->user()->hasPermissionTo('delete-bills')) {
+            abort(403, 'You do not have permission to delete bills.');
+        }
+        $bill->delete();
+        ActivityLog::log('delete', "Bill #{$bill->id} deleted");
+        return redirect()->route('bills.index')->with('success', 'Bill deleted successfully!');
+    }
+
+    public function sendEmail(Bill $bill)
+    {
+        $bill->load(['lease.tenant', 'lease.unit']);
+        $tenant = $bill->lease->tenant;
+
+        if (empty($tenant->email)) {
+            return back()->with('error', 'This tenant does not have an email address. Please update their profile first.');
+        }
+
+        try {
+            Mail::to($tenant->email)->send(new BillNotification($bill));
+            ActivityLog::log('email', "Bill #{$bill->id} notification sent to {$tenant->email}", $bill);
+            return back()->with('success', "Bill notification sent successfully to {$tenant->email}!");
+        } catch (\Exception $e) {
+            return back()->with('error', 'Failed to send email: ' . $e->getMessage());
+        }
     }
 }

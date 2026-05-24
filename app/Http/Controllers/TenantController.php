@@ -2,125 +2,94 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Tenant;
 use Illuminate\Http\Request;
-
-use App\Mail\TenantMessageMail;
-use Illuminate\Support\Facades\Mail;
+use App\Models\Tenant;
+use App\Models\ActivityLog;
 
 class TenantController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $tenants = Tenant::with(['leases' => function($q) {
-            $q->where('active', true)->with('unit');
-        }])->latest()->get();
+        $query = Tenant::query();
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('first_name', 'like', "%{$search}%")
+                  ->orWhere('last_name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%");
+            });
+        }
+
+        $tenants = $query->orderBy('created_at', 'desc')->paginate(15);
         return view('tenants.index', compact('tenants'));
-    }
-
-    public function sendMessage(Request $request, Tenant $tenant)
-    {
-        $request->validate([
-            'subject' => 'required|string|max:255',
-            'message' => 'required|string',
-        ]);
-
-        if (!$tenant->email) {
-            return back()->with('error', 'Tenant does not have an email address.');
-        }
-
-        try {
-            Mail::to($tenant->email)->send(new TenantMessageMail(
-                $request->subject,
-                $request->message,
-                $tenant->full_name
-            ));
-            return back()->with('success', 'Email sent successfully to ' . $tenant->full_name);
-        } catch (\Exception $e) {
-            return back()->with('error', 'Failed to send email: ' . $e->getMessage());
-        }
     }
 
     public function create()
     {
-        $units = Unit::where('status', 'Vacant')->get();
-        return view('tenants.create', compact('units'));
+        return view('tenants.create');
     }
 
     public function store(Request $request)
     {
-        $request->validate([
-            'full_name' => 'required|string|max:255',
-            'email' => 'nullable|email|unique:tenants',
-            'phone_number' => 'nullable|string|max:20',
+        $validated = $request->validate([
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'required|string|max:20',
             'emergency_contact' => 'nullable|string|max:255',
-            'category' => 'required|in:Student,Employee,Family',
-            'unit_id' => 'required|exists:units,id',
-            'monthly_rent' => 'required|numeric',
-            'security_deposit' => 'nullable|numeric',
-            'advance_payment' => 'nullable|numeric',
-            'move_in_date' => 'required|date',
+            'emergency_contact_phone' => 'nullable|string|max:20',
+            'date_of_birth' => 'nullable|date',
+            'id_type' => 'nullable|string|max:255',
+            'id_number' => 'nullable|string|max:255',
+            'address' => 'nullable|string',
         ]);
 
-        $tenantData = $request->except(['_token', 'unit_id', 'monthly_rent', 'security_deposit', 'advance_payment']);
-        $tenantData['registration_date'] = now();
-        $tenant = Tenant::create($tenantData);
+        $tenant = Tenant::create($validated);
+        ActivityLog::log('create', "New tenant {$tenant->full_name} was registered", $tenant);
 
-        // Create Lease automatically
-        $lease = Lease::create([
-            'unit_id' => $request->unit_id,
-            'tenant_id' => $tenant->id,
-            'start_date' => $request->move_in_date,
-            'monthly_rent' => $request->monthly_rent,
-            'security_deposit' => $request->security_deposit ?? 0,
-            'active' => true,
-        ]);
+        return redirect()->route('tenants.index')->with('success', 'Tenant created successfully!');
+    }
 
-        // Record the Advance Payment if provided
-        if ($request->advance_payment > 0) {
-            Payment::create([
-                'lease_id' => $lease->id,
-                'amount' => $request->advance_payment,
-                'payment_date' => now(),
-                'type' => 'Rent',
-                'method' => 'Cash',
-                'reference_no' => 'Advance Payment',
-            ]);
-        }
-
-        // Update Unit Status
-        Unit::find($request->unit_id)->update(['status' => 'Occupied']);
-
-        return redirect()->route('tenants.index')->with('success', 'Tenant registered, Room assigned, and Advance Payment recorded!');
+    public function show(Tenant $tenant)
+    {
+        $tenant->load(['leases.unit', 'leases.bills.payments']);
+        return view('tenants.show', compact('tenant'));
     }
 
     public function edit(Tenant $tenant)
     {
-        $currentLease = Lease::where('tenant_id', $tenant->id)->where('active', true)->first();
-        $units = Unit::where('status', 'Vacant')->orWhere('id', $currentLease?->unit_id)->get();
-        return view('tenants.edit', compact('tenant', 'units', 'currentLease'));
+        return view('tenants.edit', compact('tenant'));
     }
 
     public function update(Request $request, Tenant $tenant)
     {
-        $request->validate([
-            'full_name' => 'required|string',
-            'unit_id' => 'required|exists:units,id',
+        $validated = $request->validate([
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'required|string|max:20',
+            'emergency_contact' => 'nullable|string|max:255',
+            'emergency_contact_phone' => 'nullable|string|max:20',
+            'date_of_birth' => 'nullable|date',
+            'id_type' => 'nullable|string|max:255',
+            'id_number' => 'nullable|string|max:255',
+            'address' => 'nullable|string',
         ]);
 
-        $tenant->update($request->except(['_token', 'unit_id']));
+        $tenant->update($validated);
+        ActivityLog::log('update', "Tenant {$tenant->full_name} was updated", $tenant);
 
-        // Handle Room Change
-        $currentLease = Lease::where('tenant_id', $tenant->id)->where('active', true)->first();
-        if ($currentLease && $currentLease->unit_id != $request->unit_id) {
-            // Vacate old room
-            Unit::find($currentLease->unit_id)->update(['status' => 'Vacant']);
-            // Update lease
-            $currentLease->update(['unit_id' => $request->unit_id]);
-            // Occupy new room
-            Unit::find($request->unit_id)->update(['status' => 'Occupied']);
-        }
+        return redirect()->route('tenants.index')->with('success', 'Tenant updated successfully!');
+    }
 
-        return redirect()->route('tenants.index')->with('success', 'Tenant information updated!');
+    public function destroy(Tenant $tenant)
+    {
+        $name = $tenant->full_name;
+        $tenant->delete();
+        ActivityLog::log('delete', "Tenant {$name} was deleted");
+
+        return redirect()->route('tenants.index')->with('success', 'Tenant deleted successfully!');
     }
 }

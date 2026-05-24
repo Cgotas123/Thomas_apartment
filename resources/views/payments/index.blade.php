@@ -1,76 +1,36 @@
-<x-app-layout>
-    <x-slot name="header">
-        <div class="flex flex-col md:flex-row justify-between items-center gap-4">
-            <h2 class="font-semibold text-xl text-white leading-tight">
-                {{ __('Billing & Payments') }}
-            </h2>
-            
-            <!-- Search Bar -->
-            <div class="w-full md:w-1/2">
-                <form action="{{ route('payments.index') }}" method="GET" class="flex">
-                    <input type="text" name="search" value="{{ request('search') }}" placeholder="Search by Tenant, Unit, or Reference..." class="w-full rounded-l-md border-none focus:ring-teal-500 text-sm py-2">
-                    <button type="submit" class="bg-teal-600 hover:bg-teal-700 text-white px-4 rounded-r-md transition-colors">
-                        🔍
-                    </button>
-                </form>
-            </div>
-
-            <a href="{{ route('payments.create') }}" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded text-sm transition-colors whitespace-nowrap">
-                + Record New Payment
-            </a>
-        </div>
-    </x-slot>
-
-    <div class="py-12 bg-gray-100">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-teal-800 text-white">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Tenant / Unit</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Type</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Amount</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Method</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Date</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reference</th>
-                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            @foreach ($payments as $payment)
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <div class="text-sm font-bold text-gray-900">{{ $payment->lease->tenant->full_name }}</div>
-                                    <div class="text-xs text-gray-500">Unit {{ $payment->lease->unit->unit_number }}</div>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="px-2 py-1 bg-blue-50 text-blue-700 rounded text-[10px] font-bold uppercase">{{ $payment->type }}</span>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm font-black text-teal-700">₱{{ number_format($payment->amount, 2) }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="px-2 py-1 bg-emerald-50 text-emerald-700 rounded text-[10px] font-bold uppercase">{{ $payment->method }}</span>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ $payment->payment_date }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-400 font-mono">{{ $payment->reference_no ?? '--' }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
-                                    <a href="{{ route('payments.edit', $payment->id) }}" class="text-teal-600 hover:text-teal-900">Edit</a>
-                                    <form action="{{ route('payments.destroy', $payment->id) }}" method="POST" class="inline-block" onsubmit="return confirm('Delete this payment record?')">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button type="submit" class="text-red-600 hover:text-red-900">Delete</button>
-                                    </form>
-                                    {{ $payment->reference_no ?? '--' }}
-                                </td>
-                            </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-                <div class="px-6 py-4">
-                    {{ $payments->links() }}
-                </div>
-            </div>
-        </div>
-    </div>
-</x-app-layout>
+@extends('layouts.app')
+@section('title', 'Payments')
+@section('page-title', 'Payments')
+@section('content')
+<div class="filter-bar d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <form class="d-flex gap-2" method="GET">
+        <div class="search-bar"><i class="bi bi-search"></i><input type="text" class="form-control form-control-sm" name="search" placeholder="Search..." value="{{ request('search') }}"></div>
+        <select class="form-select form-select-sm" name="method" style="width:auto"><option value="">All Methods</option><option value="cash" {{ request('method')=='cash'?'selected':'' }}>Cash</option><option value="bank_transfer" {{ request('method')=='bank_transfer'?'selected':'' }}>Bank Transfer</option><option value="gcash" {{ request('method')=='gcash'?'selected':'' }}>GCash</option><option value="maya" {{ request('method')=='maya'?'selected':'' }}>Maya</option></select>
+        <button class="btn btn-primary btn-sm"><i class="bi bi-funnel"></i></button>
+    </form>
+    <a href="{{ route('payments.create') }}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i>Record Payment</a>
+</div>
+<div class="card-custom"><div class="card-body p-0"><div class="table-responsive">
+    <table class="table-custom"><thead><tr><th>#</th><th>Unit</th><th>Tenant</th><th>Amount</th><th>Method</th><th>Reference</th><th>Date</th><th>Actions</th></tr></thead>
+    <tbody>
+        @forelse($payments as $p)
+            <tr>
+                <td>{{ $p->id }}</td>
+                <td>{{ $p->bill->lease->unit->unit_number ?? 'N/A' }}</td>
+                <td>{{ $p->bill->lease->tenant->full_name ?? 'N/A' }}</td>
+                <td><strong>₱{{ number_format($p->amount,2) }}</strong></td>
+                <td>{!! $p->method_badge !!}</td>
+                <td>{{ $p->reference_number ?? '-' }}</td>
+                <td>{{ $p->payment_date->format('M d, Y') }}</td>
+                <td>
+                    <a href="{{ route('payments.show', $p) }}" class="btn btn-sm btn-outline-primary btn-icon"><i class="bi bi-eye"></i></a>
+                    @role('admin')<form id="del-p-{{ $p->id }}" action="{{ route('payments.destroy', $p) }}" method="POST" class="d-inline">@csrf @method('DELETE')<button type="button" onclick="confirmDelete('del-p-{{ $p->id }}')" class="btn btn-sm btn-outline-danger btn-icon"><i class="bi bi-trash"></i></button></form>@endrole
+                </td>
+            </tr>
+        @empty
+            <tr><td colspan="8"><div class="empty-state"><i class="bi bi-cash-stack"></i><h5>No payments found</h5></div></td></tr>
+        @endforelse
+    </tbody></table>
+</div></div></div>
+<div class="mt-3">{{ $payments->withQueryString()->links() }}</div>
+@endsection

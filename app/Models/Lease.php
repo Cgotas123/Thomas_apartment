@@ -2,11 +2,22 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Lease extends Model
 {
-    protected $fillable = ['unit_id', 'tenant_id', 'start_date', 'end_date', 'monthly_rent', 'security_deposit', 'active'];
+    use HasFactory;
+
+    protected $fillable = [
+        'tenant_id', 'unit_id', 'start_date', 'end_date',
+        'monthly_rent', 'deposit', 'status', 'notes'
+    ];
+
+    protected $casts = [
+        'start_date' => 'date',
+        'end_date' => 'date',
+    ];
 
     public function tenant()
     {
@@ -18,8 +29,18 @@ class Lease extends Model
         return $this->belongsTo(Unit::class);
     }
 
-    public function payments()
+    public function bills()
     {
-        return $this->hasMany(Payment::class);
+        return $this->hasMany(Bill::class);
+    }
+
+    public function getStatusBadgeAttribute()
+    {
+        return match($this->status) {
+            'active' => '<span class="badge bg-success">Active</span>',
+            'expired' => '<span class="badge bg-secondary">Expired</span>',
+            'terminated' => '<span class="badge bg-danger">Terminated</span>',
+            default => '<span class="badge bg-secondary">Unknown</span>',
+        };
     }
 }

@@ -2,68 +2,70 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Payment;
-use App\Models\Lease;
 use Illuminate\Http\Request;
+use App\Models\Payment;
+use App\Models\Bill;
+use App\Models\ActivityLog;
 
 class PaymentController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Payment::with('lease.tenant', 'lease.unit');
-
-        if ($request->has('search')) {
-            $search = $request->get('search');
-            $query->whereHas('lease.tenant', function($q) use ($search) {
-                $q->where('full_name', 'like', "%{$search}%");
-            })->orWhereHas('lease.unit', function($q) use ($search) {
-                $q->where('unit_number', 'like', "%{$search}%");
-            })->orWhere('reference_no', 'like', "%{$search}%")
-              ->orWhere('payment_date', 'like', "%{$search}%");
+        $query = Payment::with(['bill.lease.tenant', 'bill.lease.unit', 'receiver']);
+        if ($request->filled('method')) { $query->where('payment_method', $request->method); }
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where('reference_number', 'like', "%{$s}%")
+                ->orWhereHas('bill.lease.tenant', fn($q) => $q->where('first_name','like',"%{$s}%")->orWhere('last_name','like',"%{$s}%"));
         }
-
-        $payments = $query->latest()->paginate(10);
+        $payments = $query->orderBy('payment_date', 'desc')->paginate(15);
         return view('payments.index', compact('payments'));
     }
 
-    public function create()
+    public function create(Request $request)
     {
-        $leases = Lease::with(['tenant', 'unit'])->where('active', true)->get();
-        
-        // Calculate pending balances for each lease
-        foreach ($leases as $lease) {
-            $latestElec = \App\Models\MeterReading::where('unit_id', $lease->unit_id)->where('type', 'Electricity')->latest()->first();
-            $latestWater = \App\Models\MeterReading::where('unit_id', $lease->unit_id)->where('type', 'Water')->latest()->first();
-            
-            $lease->pending_utilities = ($latestElec ? $latestElec->cost : 0) + ($latestWater ? $latestWater->cost : 0);
-            $lease->total_due = $lease->monthly_rent + $lease->pending_utilities + $lease->wifi_fee;
+        $bills = Bill::with(['lease.tenant', 'lease.unit'])->whereIn('status', ['unpaid', 'partial', 'overdue'])->get();
+        $selectedBill = $request->bill_id ? Bill::find($request->bill_id) : null;
+        return view('payments.create', compact('bills', 'selectedBill'));
+    }
+
+    public function store(Request $request)
+    {
+        $v = $request->validate([
+            'bill_id' => 'required|exists:bills,id',
+            'amount' => 'required|numeric|min:0.01',
+            'payment_method' => 'required|in:cash,bank_transfer,gcash,maya',
+            'reference_number' => 'nullable|string|max:255',
+            'payment_date' => 'required|date',
+            'notes' => 'nullable|string',
+        ]);
+        $v['received_by'] = auth()->id();
+        $payment = Payment::create($v);
+
+        // Update bill status
+        $bill = Bill::find($v['bill_id']);
+        $totalPaid = $bill->payments->sum('amount');
+        if ($totalPaid >= $bill->total_amount) {
+            $bill->update(['status' => 'paid']);
+        } else {
+            $bill->update(['status' => 'partial']);
         }
 
-        return view('payments.create', compact('leases'));
+        ActivityLog::log('create', "Payment of ₱" . number_format($v['amount'], 2) . " received for Bill #{$v['bill_id']}", $payment);
+        return redirect()->route('payments.index')->with('success', 'Payment recorded successfully!');
     }
 
-    public function edit(Payment $payment)
+    public function show(Payment $payment)
     {
-        $leases = Lease::with(['tenant', 'unit'])->get();
-        return view('payments.edit', compact('payment', 'leases'));
-    }
-
-    public function update(Request $request, Payment $payment)
-    {
-        $request->validate([
-            'amount' => 'required|numeric',
-            'payment_date' => 'required|date',
-            'type' => 'required',
-            'method' => 'required',
-        ]);
-
-        $payment->update($request->except('_token'));
-        return redirect()->route('payments.index')->with('success', 'Payment updated!');
+        $payment->load(['bill.lease.tenant', 'bill.lease.unit', 'receiver']);
+        return view('payments.show', compact('payment'));
     }
 
     public function destroy(Payment $payment)
     {
+        if (!auth()->user()->hasRole('admin')) { abort(403); }
         $payment->delete();
-        return redirect()->route('payments.index')->with('success', 'Payment deleted!');
+        ActivityLog::log('delete', "Payment #{$payment->id} deleted");
+        return redirect()->route('payments.index')->with('success', 'Payment deleted successfully!');
     }
 }

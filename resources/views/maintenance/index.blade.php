@@ -1,60 +1,36 @@
-<x-app-layout>
-    <x-slot name="header">
-        <div class="flex justify-between items-center">
-            <h2 class="font-semibold text-xl text-white leading-tight">
-                {{ __('Maintenance Requests') }}
-            </h2>
-            <a href="{{ route('maintenance.create') }}" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded text-sm transition-colors">
-                + New Request
-            </a>
-        </div>
-    </x-slot>
-
-    <div class="py-12 bg-gray-100">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
-                <div class="p-6">
-                    @forelse ($requests as $request)
-                        <div class="mb-6 p-4 border rounded-lg bg-gray-50 flex flex-col md:flex-row justify-between items-start md:items-center">
-                            <div class="flex-1">
-                                <div class="flex items-center gap-3 mb-2">
-                                    <span class="px-2 py-1 rounded text-xs font-bold uppercase tracking-wider
-                                        {{ $request->priority == 'Urgent' ? 'bg-red-600 text-white' : ($request->priority == 'High' ? 'bg-orange-500 text-white' : 'bg-blue-500 text-white') }}">
-                                        {{ $request->priority }}
-                                    </span>
-                                    <h3 class="text-lg font-bold text-teal-900">{{ $request->title }}</h3>
-                                    <span class="text-xs text-gray-500 italic">Unit {{ $request->unit->unit_number }}</span>
-                                </div>
-                                <p class="text-gray-600 text-sm mb-2">{{ $request->description }}</p>
-                                <div class="text-xs text-gray-400">
-                                    Requested on: {{ $request->created_at->format('M d, Y h:i A') }}
-                                </div>
-                            </div>
-
-                            <div class="mt-4 md:mt-0 md:ml-6 flex items-center gap-4">
-                                <form action="{{ route('maintenance.update', $request->id) }}" method="POST" class="flex items-center gap-2">
-                                    @csrf
-                                    @method('PUT')
-                                    <select name="status" onchange="this.form.submit()" class="text-sm rounded border-gray-300 focus:border-teal-500 focus:ring focus:ring-teal-200">
-                                        <option value="Pending" {{ $request->status == 'Pending' ? 'selected' : '' }}>Pending</option>
-                                        <option value="In Progress" {{ $request->status == 'In Progress' ? 'selected' : '' }}>In Progress</option>
-                                        <option value="Completed" {{ $request->status == 'Completed' ? 'selected' : '' }}>Completed</option>
-                                        <option value="Canceled" {{ $request->status == 'Canceled' ? 'selected' : '' }}>Canceled</option>
-                                    </select>
-                                </form>
-                                <span class="px-3 py-1 rounded-full text-xs font-bold
-                                    {{ $request->status == 'Completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800' }}">
-                                    {{ $request->status }}
-                                </span>
-                            </div>
-                        </div>
-                    @empty
-                        <div class="text-center py-10 text-gray-500">
-                            No maintenance requests found.
-                        </div>
-                    @endforelse
-                </div>
-            </div>
-        </div>
-    </div>
-</x-app-layout>
+@extends('layouts.app')
+@section('title', 'Maintenance Requests')
+@section('page-title', 'Maintenance Requests')
+@section('content')
+<div class="filter-bar d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <form class="d-flex gap-2 flex-wrap" method="GET">
+        <div class="search-bar"><i class="bi bi-search"></i><input type="text" class="form-control form-control-sm" name="search" placeholder="Search..." value="{{ request('search') }}"></div>
+        <select class="form-select form-select-sm" name="status" style="width:auto"><option value="">All Status</option><option value="pending" {{ request('status')=='pending'?'selected':'' }}>Pending</option><option value="in_progress" {{ request('status')=='in_progress'?'selected':'' }}>In Progress</option><option value="completed" {{ request('status')=='completed'?'selected':'' }}>Completed</option><option value="cancelled" {{ request('status')=='cancelled'?'selected':'' }}>Cancelled</option></select>
+        <select class="form-select form-select-sm" name="priority" style="width:auto"><option value="">All Priority</option><option value="low" {{ request('priority')=='low'?'selected':'' }}>Low</option><option value="medium" {{ request('priority')=='medium'?'selected':'' }}>Medium</option><option value="high" {{ request('priority')=='high'?'selected':'' }}>High</option><option value="urgent" {{ request('priority')=='urgent'?'selected':'' }}>Urgent</option></select>
+        <button class="btn btn-primary btn-sm"><i class="bi bi-funnel"></i></button>
+    </form>
+    <a href="{{ route('maintenance.create') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New Request</a>
+</div>
+<div class="card-custom"><div class="card-body p-0"><div class="table-responsive">
+    <table class="table-custom"><thead><tr><th>Unit</th><th>Title</th><th>Priority</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+    <tbody>
+        @forelse($requests as $r)
+            <tr>
+                <td><strong>{{ $r->unit->unit_number }}</strong></td>
+                <td>{{ $r->title }}</td>
+                <td>{!! $r->priority_badge !!}</td>
+                <td>{!! $r->status_badge !!}</td>
+                <td>{{ $r->created_at->format('M d, Y') }}</td>
+                <td>
+                    <a href="{{ route('maintenance.show', $r) }}" class="btn btn-sm btn-outline-primary btn-icon"><i class="bi bi-eye"></i></a>
+                    <a href="{{ route('maintenance.edit', $r) }}" class="btn btn-sm btn-outline-primary btn-icon"><i class="bi bi-pencil"></i></a>
+                    <form id="del-m-{{ $r->id }}" action="{{ route('maintenance.destroy', $r) }}" method="POST" class="d-inline">@csrf @method('DELETE')<button type="button" onclick="confirmDelete('del-m-{{ $r->id }}')" class="btn btn-sm btn-outline-danger btn-icon"><i class="bi bi-trash"></i></button></form>
+                </td>
+            </tr>
+        @empty
+            <tr><td colspan="6"><div class="empty-state"><i class="bi bi-wrench"></i><h5>No maintenance requests</h5></div></td></tr>
+        @endforelse
+    </tbody></table>
+</div></div></div>
+<div class="mt-3">{{ $requests->withQueryString()->links() }}</div>
+@endsection

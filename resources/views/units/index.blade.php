@@ -1,43 +1,61 @@
-<x-app-layout>
-    <x-slot name="header">
-        <div class="flex justify-between items-center">
-            <h2 class="font-semibold text-xl text-white leading-tight">
-                {{ __('Unit Management') }}
-            </h2>
-        </div>
-    </x-slot>
+@extends('layouts.app')
+@section('title', 'Units')
+@section('page-title', 'Units')
 
-    <div class="py-12 bg-gray-100">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    @foreach ($units as $unit)
-                        <div class="border rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden">
-                            <div class="p-4 bg-teal-800 text-white flex justify-between items-center">
-                                <span class="text-lg font-bold">Unit {{ $unit->unit_number }}</span>
-                                <span class="px-2 py-1 rounded text-xs font-semibold {{ $unit->type == 'AC' ? 'bg-blue-500' : 'bg-orange-500' }}">
-                                    {{ $unit->type }}
-                                </span>
-                            </div>
-                            <div class="p-4">
-                                <p class="text-sm text-gray-600 mb-1">Floor: <strong>{{ $unit->floor }}</strong></p>
-                                <p class="text-sm text-gray-600 mb-1">Rent: <strong>₱{{ number_format($unit->base_rent, 2) }}</strong></p>
-                                <p class="text-sm mb-4">
-                                    Status: 
-                                    <span class="font-bold {{ $unit->status == 'Vacant' ? 'text-green-600' : ($unit->status == 'Occupied' ? 'text-red-600' : 'text-orange-600') }}">
-                                        {{ $unit->status }}
-                                    </span>
-                                </p>
-                                <div class="flex justify-end">
-                                    <a href="{{ route('units.edit', $unit->id) }}" class="text-teal-700 hover:text-teal-900 text-sm font-semibold flex items-center">
-                                        Edit Unit →
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    @endforeach
-                </div>
-            </div>
+@section('content')
+<div class="filter-bar d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <form class="d-flex gap-2 flex-wrap" method="GET">
+        <div class="search-bar">
+            <i class="bi bi-search"></i>
+            <input type="text" class="form-control form-control-sm" name="search" placeholder="Search..." value="{{ request('search') }}">
+        </div>
+        <select class="form-select form-select-sm" name="status" style="width:auto">
+            <option value="">All Status</option>
+            <option value="vacant" {{ request('status')=='vacant'?'selected':'' }}>Vacant</option>
+            <option value="occupied" {{ request('status')=='occupied'?'selected':'' }}>Occupied</option>
+            <option value="maintenance" {{ request('status')=='maintenance'?'selected':'' }}>Maintenance</option>
+        </select>
+        <select class="form-select form-select-sm" name="type" style="width:auto">
+            <option value="">All Types</option>
+            <option value="studio" {{ request('type')=='studio'?'selected':'' }}>Studio</option>
+            <option value="1br" {{ request('type')=='1br'?'selected':'' }}>1 BR</option>
+            <option value="2br" {{ request('type')=='2br'?'selected':'' }}>2 BR</option>
+            <option value="3br" {{ request('type')=='3br'?'selected':'' }}>3 BR</option>
+        </select>
+        <button class="btn btn-primary btn-sm"><i class="bi bi-funnel"></i> Filter</button>
+    </form>
+    <a href="{{ route('units.create') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>Add Unit</a>
+</div>
+
+<div class="card-custom">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table-custom">
+                <thead><tr><th>Unit #</th><th>Floor</th><th>Type</th><th>Rent</th><th>Status</th><th>Tenant</th><th>Actions</th></tr></thead>
+                <tbody>
+                    @forelse($units as $unit)
+                        <tr>
+                            <td><strong>{{ $unit->unit_number }}</strong></td>
+                            <td>{{ $unit->floor }}</td>
+                            <td>{{ $unit->type_label }}</td>
+                            <td>₱{{ number_format($unit->monthly_rent, 2) }}</td>
+                            <td>{!! $unit->status_badge !!}</td>
+                            <td>{{ $unit->currentTenant()?->full_name ?? '-' }}</td>
+                            <td>
+                                <a href="{{ route('units.show', $unit) }}" class="btn btn-sm btn-outline-primary btn-icon"><i class="bi bi-eye"></i></a>
+                                <a href="{{ route('units.edit', $unit) }}" class="btn btn-sm btn-outline-primary btn-icon"><i class="bi bi-pencil"></i></a>
+                                <form id="del-u-{{ $unit->id }}" action="{{ route('units.destroy', $unit) }}" method="POST" class="d-inline">@csrf @method('DELETE')
+                                    <button type="button" onclick="confirmDelete('del-u-{{ $unit->id }}')" class="btn btn-sm btn-outline-danger btn-icon"><i class="bi bi-trash"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="7"><div class="empty-state"><i class="bi bi-door-open"></i><h5>No units found</h5></div></td></tr>
+                    @endforelse
+                </tbody>
+            </table>
         </div>
     </div>
-</x-app-layout>
+</div>
+<div class="mt-3">{{ $units->withQueryString()->links() }}</div>
+@endsection
